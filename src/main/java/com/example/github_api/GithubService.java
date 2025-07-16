@@ -25,7 +25,7 @@ public class GithubService {
     public List<RepositoryResponse> getRepositories(String username) {
         String repoUrl = "https://api.github.com/users/" + username + "/repos";
         HttpHeaders headers = new HttpHeaders();
-        headers.setAccept(List.of(MediaType.valueOf("applcation/vnd.github+json")));
+        headers.setAccept(List.of(MediaType.valueOf("application/vnd.github+json")));
         headers.set("User-Agent", "Github-API");
         HttpEntity<Void> request = new HttpEntity<>(headers);
 
@@ -53,7 +53,7 @@ public class GithubService {
     private List<BranchResponse> getBranches(String owner, String repoName) {
         String url = "https://api.github.com/repos/" + owner + "/" + repoName + "/branches";
         HttpHeaders headers = new HttpHeaders();
-        headers.setAccept(List.of(MediaType.APPLICATION_JSON));
+        headers.setAccept(List.of(MediaType.valueOf("application/vnd.github+json")));
         headers.set("User-Agent", "Github-API");
         HttpEntity<Void> request = new HttpEntity<>(headers);
 
