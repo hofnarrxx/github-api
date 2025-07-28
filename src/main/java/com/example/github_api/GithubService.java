@@ -1,79 +1,74 @@
 package com.example.github_api;
 
 import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.ParameterizedTypeReference;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
+import org.springframework.web.client.RestClient;
 
-import com.example.github_api.model.BranchResponse;
-import com.example.github_api.model.RepositoryResponse;
+import org.springframework.web.server.ResponseStatusException;
+
+import com.example.github_api.model.RepositoryBranch;
+import com.example.github_api.model.response.RepositoryBranchResponse;
+import com.example.github_api.model.response.RepositoryResponse;
+import com.example.github_api.model.Repository;
 
 @Service
 public class GithubService {
-    @Autowired
-    private RestTemplate restTemplate;
+    private final RestClient restClient;
 
-    public List<RepositoryResponse> getRepositories(String username) {
-        String repoUrl = "https://api.github.com/users/" + username + "/repos";
-        HttpHeaders headers = new HttpHeaders();
-        headers.setAccept(List.of(MediaType.valueOf("application/vnd.github+json")));
-        headers.set("User-Agent", "Github-API");
-        HttpEntity<Void> request = new HttpEntity<>(headers);
-
-        ResponseEntity<List<Map<String, Object>>> response = restTemplate.exchange(
-                repoUrl,
-                HttpMethod.GET,
-                request,
-                new ParameterizedTypeReference<>() {
-                });
-
-        List<Map<String, Object>> repositories = response.getBody();
-        if (repositories == null) return List.of();
-
-        return repositories.stream()
-            .filter(repo -> !(Boolean) repo.get("fork"))
-            .map(repo -> {
-                String name = (String) repo.get("name");
-                Map<String, Object> owner = (Map<String, Object>) repo.get("owner");
-                String login = (String) owner.get("login");
-                List<BranchResponse> branches = getBranches(login, name);
-                return new RepositoryResponse(name, login, branches);
-            }).collect(Collectors.toList());
+    public GithubService(RestClient.Builder builder) {
+        this.restClient = builder
+                .baseUrl("https://api.github.com")
+                .defaultHeader("Accept", "application/vnd.github+json")
+                .defaultHeader("User-Agent", "Github-API")
+                .build();
     }
 
-    private List<BranchResponse> getBranches(String owner, String repoName) {
-        String url = "https://api.github.com/repos/" + owner + "/" + repoName + "/branches";
-        HttpHeaders headers = new HttpHeaders();
-        headers.setAccept(List.of(MediaType.valueOf("application/vnd.github+json")));
-        headers.set("User-Agent", "Github-API");
-        HttpEntity<Void> request = new HttpEntity<>(headers);
+    public List<Repository> getRepositories(String username) {
+        List<RepositoryResponse> repositories = restClient.get()
+                .uri("/users/{username}/repos", username)
+                .retrieve()
+                .body(new ParameterizedTypeReference<>() {
+                });
+        if (repositories == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_GATEWAY,
+                    "GitHub API returned incorrect data for user: " + username);
+        }
 
-        ResponseEntity<List<Map<String, Object>>> response = restTemplate.exchange(
-                url,
-                HttpMethod.GET,
-                request,
-                new ParameterizedTypeReference<>() {
+        if (repositories.isEmpty())
+            return List.of();
+
+        return repositories.stream()
+                .filter(repo -> !repo.fork())
+                .map(repo -> new Repository(
+                        repo.name(),
+                        repo.owner().login(),
+                        getBranches(repo.owner().login(), repo.name())))
+                .toList();
+    }
+
+    private List<RepositoryBranch> getBranches(String owner, String repoName) {
+        List<RepositoryBranchResponse> branches = restClient.get()
+                .uri("/repos/{owner}/{repo}/branches", owner, repoName)
+                .retrieve()
+                .body(new ParameterizedTypeReference<>() {
                 });
 
-        List<Map<String, Object>> branchList = response.getBody();
-        if (branchList == null) return List.of();
+        if (branches == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_GATEWAY,
+                    "GitHub API returned incorrect data for repository: " + repoName);
+        }
 
-        return branchList.stream()
-                .map(branch -> {
-                    String name = (String) branch.get("name");
-                    Map<String, Object> commit = (Map<String, Object>) branch.get("commit");
-                    String sha = (String) commit.get("sha");
-                    return new BranchResponse(name, sha);
-                })
-                .collect(Collectors.toList());
+        if (branches.isEmpty())
+            return List.of();
+
+        return branches.stream()
+            .map(branch -> new RepositoryBranch(branch.name(),
+                branch.commit().sha()))
+            .toList();
     }
 }
